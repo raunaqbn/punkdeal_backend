@@ -2,12 +2,19 @@
 const sqlite3 = require('sqlite3').verbose();
 
 const express = require('express');
+const cors = require('cors');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt')
+
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.raw());
+app.use(cors({
+  origin: '*',
+  methods: 'POST'
+}));
 
 // create the users table if it doesn't already exist
 function createTable() {
@@ -55,11 +62,36 @@ function getUser(email, password, callback) {
     (err, user) => {
       // close the database connection
       db.close();
-
+      console.log("db getUser found " + user.email)
       // return the user to the callback
       callback(user);
     }
   );
+}
+
+async function getUserByEmail(email, callback) {
+  const db = new sqlite3.Database('users.db');
+
+  // get the user from the database
+  const user = await new Promise((resolve, reject) => db.all(
+    'SELECT * FROM users WHERE email = ?',
+    email,
+    (err, user) => {
+      db.close();
+      if (err) {
+        reject(err)
+      } else {
+
+        console.log("db find by email found " + user[0])
+        // return the user to the callback
+        resolve(user);
+      }
+    }));
+
+    console.log ("testing " + user)
+    console.log ("testing " + user.name)
+    callback(user)
+
 }
 
 // add a deal to the database for a given user
@@ -96,8 +128,12 @@ console.log("getting the deals for user_id =" + user_id)
 // create the users table if it doesn't already exist
 createTable();
 
+
+
 // add a user when the /add-user endpoint is called
-app.post('/add-user', (req, res) => {
+// We use bcrypt here to make sure that the passwords are stored encrypted
+app.post('/register', async (req, res) => {
+  console.log("Raunaq got a register call")
   // get the request data
   const data = req.body;
 
@@ -105,13 +141,68 @@ app.post('/add-user', (req, res) => {
   const name = data.name;
   const email = data.email;
   const password = data.password;
+  console.log("name:" + name)
+  console.log("password:" + password)
+  console.log("email:" + email)
 
-  // add the user to the database
-  addUser(name, email, password);
+  // Generate a salt so that same passwords don't have the same hash
+  // Furthermore hash the password before storing it in the sql database
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10)
 
-  // return a success message
-  res.json({
-    message: 'User added successfully'
+    // add the user to the database
+    addUser(name, email, password);
+    res.status(200).json({
+        success:true,
+        redirectUrl: '/login'
+    })
+  }
+  catch {
+    res.status(200).json({
+      success:fail,
+      redirectUrl: '/register'
+    })
+  }
+});
+
+
+// add a user when the /add-user endpoint is called
+// We use bcrypt here to make sure that the passwords are stored encrypted
+app.post('/login',  async (req, res) => {
+  console.log("Raunaq got a login call")
+  // get the request data
+  const data = req.body;
+
+  // extract the user data
+  const email = data.email;
+  const password = data.password;
+  console.log("password:" + password)
+  console.log("email:" + email)
+
+  // // get the user from the database
+  //  getUserByEmail(email,  user => {
+  //   console.log("user password given:" + password + "password in db" + user.password)
+  //   console.log("user found :" + user)
+  //   if (user == null) {
+  //     return res.status(400).send('Cannot find user')
+  //   }
+  //   try {
+  //     console.log("user password given:" + password + "password in db" + user.password)
+  //     // if(await bcrypt.compare(password, user.password)) {
+  //     //   res.json(user).send('Success')
+  //     // } else {
+  //     //   res.send('Wrong Password')
+  //     // }
+  //     res.send(user)
+  //   } catch {
+  //     res.status(500).send()
+  //   }
+  // })
+  const hashedPassword = await bcrypt.hash(password, 10)
+  getUser(email, password, user => {
+    // return the user to the caller
+
+    res.json(user);
   });
 });
 
@@ -127,6 +218,7 @@ app.post('/get-user', (req, res) => {
   // get the user from the database
   getUser(email, password, user => {
     // return the user to the caller
+
     res.json(user);
   });
 });
